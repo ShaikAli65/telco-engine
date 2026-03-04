@@ -27,6 +27,7 @@ class Ticket(BaseModel):
     ticket_id: str = Field(..., description="Unique support ticket identifier")
     ticket_type: TicketType
     created_at: datetime
+    sentiment_score: float | None = Field(default=None, ge=-1, le=1)
 
 
 class CustomerProfile(BaseModel):
@@ -45,6 +46,7 @@ class RiskRequest(BaseModel):
 class RiskResponse(BaseModel):
     customer_id: str
     risk: RiskCategory
+    churn_probability: float = Field(..., ge=0, le=1)
+    model_version: str
     reasons: list[str]
     evaluated_at: datetime
-

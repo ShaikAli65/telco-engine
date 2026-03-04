@@ -1,12 +1,14 @@
-# Telco Rule-Based Churn Risk Engine
+# Telco Churn Risk Engine
 
-Rule-based churn risk microservice for a telecom provider. The service ingests customer data plus support ticket history and returns a deterministic risk category without using machine learning.
+Telecom churn risk microservice that evolves from a rule-based DevOps service into an ML-backed system. The current implementation includes an ML training pipeline, saved model artifacts, and an inference API driven by customer and ticket behavior.
 
 ## Features
 
-- `POST /predict-risk` endpoint for churn risk evaluation
+- `POST /predict-risk` endpoint for ML churn risk inference
+- `GET /model-info` endpoint for model metadata and evaluation metrics
 - FastAPI-generated OpenAPI documentation at `/docs` and `/openapi.json`
-- Rule engine based on customer contract, ticket behavior, and charge changes
+- Feature engineering for ticket frequency windows, sentiment, category counts, ticket spacing, and monthly charge changes
+- Model training pipeline with persisted artifacts and evaluation metrics
 - JSON application logging
 - Prometheus-compatible metrics exposed at `/metrics`
 - Unit and API tests with `pytest`
@@ -14,14 +16,25 @@ Rule-based churn risk microservice for a telecom provider. The service ingests c
 - Docker Compose observability stack with Prometheus and Grafana
 - Ticket log simulation script for synthetic support behavior
 
-## Business Rules
+## ML Features
 
-The API applies the following rules in priority order:
+The training and inference flows generate these features:
 
-1. More than 5 tickets in the last 30 days -> `High`
-2. Month-to-Month contract and at least one complaint ticket in the last 30 days -> `High`
-3. Monthly charges increased and at least 3 tickets were raised in the last 30 days -> `Medium`
-4. Otherwise -> `Low`
+1. Ticket frequency over 7, 30, and 90 days
+2. Average ticket sentiment score
+3. Ticket category counts over 90 days
+4. Average time between tickets
+5. Change in monthly charges
+6. Contract type, tenure, and current monthly charges
+
+## Model Evaluation
+
+The training pipeline reports:
+
+1. F1 score
+2. ROC-AUC
+3. Average precision for the Precision-Recall tradeoff
+4. Precision and recall
 
 ## Project Structure
 
@@ -37,6 +50,14 @@ The API applies the following rules in priority order:
 ├── Dockerfile
 └── requirements.txt
 ```
+
+## Train Model
+
+```bash
+python scripts/train_model.py
+```
+
+Artifacts are written to `artifacts/churn_model.joblib` and `artifacts/metrics.json`.
 
 ## Local Run
 
@@ -79,6 +100,11 @@ Endpoints:
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
 
+Default Grafana login:
+
+- Username: `admin`
+- Password: `admin`
+
 ## Tests
 
 ```bash
@@ -98,12 +124,17 @@ kubectl apply -f k8s/deployment.yaml
 - Prometheus scrape target: `/metrics`
 - Example Prometheus config: `monitoring/prometheus.yml`
 - Example Grafana dashboard: `monitoring/grafana-dashboard.json`
+- Grafana provisioning: `monitoring/grafana/provisioning/`
 - Structured inference logs are emitted to standard output
 
 ## Dataset and Ticket Simulation
 
-Place the Kaggle Telco churn CSV at `data/Telco-Customer-Churn.csv` if you want to enrich the project with real customer records. Then generate simulated support activity:
+Place the Kaggle Telco churn CSV at `data/Telco-Customer-Churn.csv` to train from the Telco Customer Churn dataset. Ticket logs are simulated and saved automatically during training, or you can generate them explicitly:
 
 ```bash
 python scripts/simulate_ticket_logs.py
 ```
+
+## Architecture Docs
+
+GitHub-renderable Mermaid diagrams and assignment notes are available in `docs/`.
