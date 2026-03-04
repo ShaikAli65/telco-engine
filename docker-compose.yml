@@ -1,0 +1,38 @@
+services:
+  telco-rule-engine:
+    image: shaik2022bcs0118/telco-rule-engine:v1
+    container_name: telco-rule-engine
+    ports:
+      - "8000:8000"
+    networks:
+      - observability
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: telco-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - telco-rule-engine
+    networks:
+      - observability
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    container_name: telco-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    volumes:
+      - ./monitoring/grafana-dashboard.json:/var/lib/grafana/dashboards/telco-rule-engine.json:ro
+    networks:
+      - observability
+
+networks:
+  observability:
+    driver: bridge
