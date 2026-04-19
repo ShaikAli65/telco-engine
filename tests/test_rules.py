@@ -1,76 +1,84 @@
-from datetime import datetime, timedelta, timezone
+import pytest
 
-from app.models import ContractType, CustomerProfile, RiskCategory, RiskRequest, Ticket, TicketType
+from app.models import ContractType, RiskCategory, TicketType
 from app.rules import evaluate_risk
 
 
-def build_ticket(ticket_id: str, days_ago: int, ticket_type: TicketType = TicketType.technical) -> Ticket:
-    return Ticket(
-        ticket_id=ticket_id,
-        ticket_type=ticket_type,
-        created_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
-    )
-
-
-def build_customer(
-    contract_type: ContractType = ContractType.one_year,
-    monthly_charges: float = 75.0,
-    previous_monthly_charges: float = 70.0,
-) -> CustomerProfile:
-    return CustomerProfile(
-        customer_id="C001",
+@pytest.mark.parametrize(
+    ("ticket_specs", "contract_type", "monthly_charges", "previous_monthly_charges", "expected_risk", "reason_fragment"),
+    [
+        (
+            [{"ticket_id": f"T{i}", "days_ago": i} for i in range(6)],
+            ContractType.one_year,
+            75.0,
+            70.0,
+            RiskCategory.high,
+            "More than 5 support tickets",
+        ),
+        (
+            [{"ticket_id": f"T{i}", "days_ago": i} for i in range(3)],
+            ContractType.one_year,
+            90.0,
+            70.0,
+            RiskCategory.medium,
+            "Monthly charges increased",
+        ),
+        (
+            [{"ticket_id": "T1", "days_ago": 2, "ticket_type": TicketType.complaint}],
+            ContractType.month_to_month,
+            60.0,
+            60.0,
+            RiskCategory.high,
+            "Month-to-Month customer",
+        ),
+        (
+            [{"ticket_id": "T1", "days_ago": 45}],
+            ContractType.one_year,
+            70.0,
+            70.0,
+            RiskCategory.low,
+            "No churn escalation rules matched",
+        ),
+    ],
+)
+def test_evaluate_risk_rules(
+    request_factory,
+    fixed_now,
+    ticket_specs,
+    contract_type,
+    monthly_charges,
+    previous_monthly_charges,
+    expected_risk,
+    reason_fragment,
+):
+    payload = request_factory(
         contract_type=contract_type,
         monthly_charges=monthly_charges,
         previous_monthly_charges=previous_monthly_charges,
-        tenure_months=12,
+        ticket_specs=ticket_specs,
     )
 
+    result = evaluate_risk(payload, now=fixed_now)
 
-def test_high_risk_for_more_than_five_recent_tickets():
-    payload = RiskRequest(
-        customer=build_customer(),
-        tickets=[build_ticket(f"T{i}", i) for i in range(6)],
+    assert result.risk == expected_risk
+    assert any(reason_fragment in reason for reason in result.reasons)
+
+
+def test_evaluate_risk_ignores_old_complaint_tickets(request_factory, fixed_now):
+    payload = request_factory(
+        contract_type=ContractType.month_to_month,
+        monthly_charges=80.0,
+        previous_monthly_charges=80.0,
+        ticket_specs=[
+            {
+                "ticket_id": "T-old",
+                "days_ago": 31,
+                "ticket_type": TicketType.complaint,
+            }
+        ],
     )
 
-    result = evaluate_risk(payload)
-
-    assert result.risk == RiskCategory.high
-    assert any("More than 5 support tickets" in reason for reason in result.reasons)
-
-
-def test_medium_risk_for_charge_increase_and_three_tickets():
-    payload = RiskRequest(
-        customer=build_customer(monthly_charges=90.0, previous_monthly_charges=70.0),
-        tickets=[build_ticket(f"T{i}", i) for i in range(3)],
-    )
-
-    result = evaluate_risk(payload)
-
-    assert result.risk == RiskCategory.medium
-
-
-def test_high_risk_for_month_to_month_complaint():
-    payload = RiskRequest(
-        customer=build_customer(
-            contract_type=ContractType.month_to_month,
-            monthly_charges=60.0,
-            previous_monthly_charges=60.0,
-        ),
-        tickets=[build_ticket("T1", 2, TicketType.complaint)],
-    )
-
-    result = evaluate_risk(payload)
-
-    assert result.risk == RiskCategory.high
-
-
-def test_low_risk_when_no_rules_match():
-    payload = RiskRequest(
-        customer=build_customer(monthly_charges=70.0, previous_monthly_charges=70.0),
-        tickets=[build_ticket("T1", 45)],
-    )
-
-    result = evaluate_risk(payload)
+    result = evaluate_risk(payload, now=fixed_now)
 
     assert result.risk == RiskCategory.low
-
+    assert result.reasons == ["No churn escalation rules matched the current profile and ticket history"]

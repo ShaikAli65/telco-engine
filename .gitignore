@@ -10,3 +10,8 @@ build/
 .coverage
 htmlcov/
 
+artifacts/*
+!artifacts/.gitkeep
+!artifacts/README.md
+
+**logs**

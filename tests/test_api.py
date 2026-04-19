@@ -1,12 +1,14 @@
-from fastapi.testclient import TestClient
+from datetime import datetime, timedelta, timezone
 
-from app.main import app
-
-
-client = TestClient(app)
+from app.models import TicketType
 
 
-def test_predict_risk_endpoint_returns_high_risk():
+def _iso_days_ago(reference: datetime, days_ago: int) -> str:
+    return (reference - timedelta(days=days_ago)).isoformat().replace("+00:00", "Z")
+
+
+def test_predict_risk_endpoint_returns_high_risk_for_complaint_rule(client):
+    now = datetime.now(timezone.utc)
     payload = {
         "customer": {
             "customer_id": "C100",
@@ -18,18 +20,18 @@ def test_predict_risk_endpoint_returns_high_risk():
         "tickets": [
             {
                 "ticket_id": "T001",
-                "ticket_type": "complaint",
-                "created_at": "2026-03-01T00:00:00Z",
+                "ticket_type": TicketType.complaint.value,
+                "created_at": _iso_days_ago(now, 2),
             },
             {
                 "ticket_id": "T002",
-                "ticket_type": "billing",
-                "created_at": "2026-02-25T00:00:00Z",
+                "ticket_type": TicketType.billing.value,
+                "created_at": _iso_days_ago(now, 10),
             },
             {
                 "ticket_id": "T003",
-                "ticket_type": "technical",
-                "created_at": "2026-02-20T00:00:00Z",
+                "ticket_type": TicketType.technical.value,
+                "created_at": _iso_days_ago(now, 15),
             },
         ],
     }
@@ -38,12 +40,22 @@ def test_predict_risk_endpoint_returns_high_risk():
 
     assert response.status_code == 200
     body = response.json()
-    assert body["risk"] == "High"
     assert body["customer_id"] == "C100"
+    assert body["risk"] == "High"
+    assert "reasons" in body
+    assert any("Month-to-Month" in reason for reason in body["reasons"])
 
 
-def test_health_endpoint():
+def test_health_endpoint(client):
     response = client.get("/health")
+
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
+
+def test_metrics_endpoint_exposes_prometheus_metrics(client):
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "text/plain" in response.headers["content-type"]
+    assert "telco_rule_engine_http_requests_total" in response.text
